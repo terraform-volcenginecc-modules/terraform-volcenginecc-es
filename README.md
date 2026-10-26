@@ -1,88 +1,167 @@
 # terraform-volcenginecc-es
 
-Terraform Module scaffold for the VolcengineCC provider.
+## 1. Overview
 
-> Status: Scaffold only. The Terraform implementation for this repository is
-> not available yet, and this repository is not ready for production use.
+Terraform module for one managed ESCloud search cluster used for log search,
+site search, metric analysis, and full-text retrieval. It manages the cluster
+topology, storage, HTTPS mode, Kibana node, public endpoint intent, maintenance
+window, tags, and ESCloud IP allowlists.
 
-## Overview
+The caller owns provider authentication and region configuration, plus the
+VPC, subnet, security groups, and any snapshot repository. The ESCloud
+Provider resource accepts VPC and subnet identifiers but exposes no security
+group or snapshot-policy field.
 
-This repository reserves the module name `volcengine/es/volcenginecc`.
+## 2. Usage
 
-The module is intended to provide a reusable Terraform abstraction for the
-`es` scenario using the `volcengine/volcenginecc` provider.
+```hcl
+module "es" {
+  source  = "terraform-volcenginecc-modules/es/volcenginecc"
+  version = "~> 1.0"
 
-Current scope:
+  region_id      = "cn-beijing"
+  cluster_name   = "application-search"
+  admin_password = var.es_admin_password
 
-- Repository and module scaffold only.
-- No Terraform resources or data sources are currently managed.
-- No production-readiness or real-cloud validation claim is made.
+  vpc_id      = "vpc-example"
+  vpc_name    = "search-vpc"
+  subnet_id   = "subnet-example"
+  subnet_name = "search-primary"
+  zone_ids    = ["cn-beijing-a"]
 
-## Usage
+  node_specs = {
+    data = {
+      type               = "Hot"
+      number             = 1
+      resource_spec_name = "es.x2.medium"
+      storage_size       = 20
+    }
+    dashboard = {
+      type               = "Kibana"
+      number             = 1
+      resource_spec_name = "kibana.x2.small"
+      storage_spec_name  = ""
+      storage_size       = 0
+    }
+  }
 
-The module implementation is not available yet. A runnable configuration will
-be added together with the first implementation release.
+  ip_allow_lists = {
+    private_es = {
+      type       = "PRIVATE_ES"
+      allow_list = ["10.0.0.0/8"]
+    }
+  }
+}
+```
 
-Provider authentication and region configuration must be supplied by the
-caller. Do not commit credentials, access keys, secrets, Terraform state, or
-plan files.
+Provider credentials and `region` belong in the caller root module.
 
-## Examples
+## 3. Examples
 
-Examples will be added when the module implementation is available.
+- `basic` represents a private development cluster with one Hot data node and
+  Kibana.
+- `complete` represents a multi-zone high-availability configuration with
+  dedicated Master and Coordinator nodes, Kibana, private access, and optional
+  restricted public access.
+- Snapshot repository integration is described as a post-create workflow in
+  the complete example. No dedicated example directory is added because the
+  Provider has no corresponding resource.
 
-Planned examples:
-
-- `examples/basic`
-- `examples/complete`
-
-## Requirements
+## 4. Requirements
 
 | Name | Version |
 |---|---|
-| Terraform | To be defined with the first implementation |
-| `volcengine/volcenginecc` | To be defined with the first implementation |
+| Terraform | `>= 1.5.7` |
+| OpenTofu | `>= 1.11.8` |
+| `volcengine/volcenginecc` | `>= 0.0.60, < 0.1.0` |
 
-## Providers
+## 5. Providers
 
 | Name | Source |
 |---|---|
 | `volcenginecc` | `volcengine/volcenginecc` |
 
-## Resources
+## 6. Resources
 
-No resources or data sources are currently managed.
+| Name | Description |
+|---|---|
+| `volcenginecc_escloud_instance.this` | The managed search cluster |
+| `volcenginecc_escloud_ip_allow_list.this` | Stable-keyed private or public IP allowlists |
 
-The resource inventory will be documented before the first release.
+## 7. Inputs
 
-## Inputs
+| Name | Description | Default |
+|---|---|---|
+| `region_id` | Cluster region; must match the Provider region | Required |
+| `cluster_name` | Search cluster name | Required |
+| `cluster_version` | Engine version | `V7_10` |
+| `vpc_id`, `vpc_name` | Caller-owned VPC identity | Required |
+| `subnet_id`, `subnet_name` | Caller-owned primary subnet identity | Required |
+| `zone_ids` | Ordered zones; first is primary | Required |
+| `admin_password` | Sensitive write-only administrator password | Required |
+| `configuration_code` | ESCloud billing configuration | `es.standard` |
+| `charge_type` | `PostPaid` or `PrePaid` | `PostPaid` |
+| `period`, `auto_renew` | Prepaid purchase and renewal settings | `null`, `false` |
+| `project_name` | Existing project | `default` |
+| `enable_https` | Enable HTTPS | `true` |
+| `enable_pure_master` | Require a dedicated Master role | `false` |
+| `deletion_protection` | Protect the cluster from deletion | `false` |
+| `node_specs` | Stable-keyed node roles, counts, compute, and storage | Required |
+| `public_access` | Elasticsearch and Kibana public endpoint settings | Disabled |
+| `ip_allow_lists` | Stable-keyed ESCloud IP allowlists | `{}` |
+| `allow_unrestricted_public_access` | Explicit opt-in for internet-wide public CIDRs | `false` |
+| `maintenance_days`, `maintenance_time` | Maintenance schedule | Empty |
+| `tags` | Cluster tags | `{}` |
 
-No input variables are currently defined.
+## 8. Outputs
 
-All inputs will document their type, default value, required status,
-validation, ownership, and replacement behavior when implemented.
+| Name | Description |
+|---|---|
+| `cluster_id` | ESCloud instance ID |
+| `cluster_status` | Current instance status |
+| `cluster_endpoints` | Elasticsearch, Kibana, and Cerebro endpoints |
+| `network_access` | Effective private/public flags and EIP IDs |
+| `node_summary` | Read-back node topology |
+| `ip_allow_list_ids` | Allowlist IDs keyed by logical name |
 
-## Outputs
+## 9. Notes
 
-No outputs are currently defined.
-
-Outputs will document their exact semantics when implemented.
-
-## Notes
-
-- This repository is currently a scaffold and is not a publishable functional
-  module.
-- Real-cloud validation has not been performed.
-- Provider limitations and unsupported scenarios will be documented before
-  release.
-- Resource ownership, import behavior, replacement behavior, cost risks, and
-  cleanup procedures must be documented before the first release.
-
-## Security
-
-Please report security issues according to the [Security Policy](SECURITY.md).
-Do not disclose security vulnerabilities through public issues.
-
-## License
-
-This project is licensed under the MIT License. See [LICENSE](LICENSE).
+- This module owns one ESCloud instance and its configured IP allowlists.
+  VPC, subnet, security groups, projects, and snapshot repositories remain
+  caller-owned.
+- Engine version, region, zones, VPC, subnet, HTTPS mode, dedicated-Master
+  mode, and project are create-only in the current Cloud Control schema.
+- Changing a `node_specs` or `ip_allow_lists` map key changes its Terraform
+  address. Allowlist type values must also remain unique because the import ID
+  is `instance_id|type`.
+- ESCloud requires at least one custom group on each allowlist. When `groups`
+  is omitted, the module creates `terraform-managed` with the default CIDRs.
+- The service injects a `sys:tag:createdBy` tag that the Provider cannot
+  distinguish from user tags. Tags are applied on create and ignored for
+  subsequent diffs to prevent a perpetual in-place update.
+- Public endpoints default to disabled. Enabling either endpoint requires
+  HTTPS and a matching non-empty public allowlist. Internet-wide CIDRs require
+  the explicit unrestricted-access opt-in.
+- `network_specs`, `node_specs_assigns`, and `admin_password` are
+  Optional+Computed or write-only. Run a second plan after apply before
+  relying on the configuration in production.
+- Provider `0.0.71` does not apply maintenance settings during create. Leave
+  them unset when first-apply idempotency is required.
+- Existing clusters can be imported at
+  `volcenginecc_escloud_instance.this`. Existing allowlists can be imported at
+  `volcenginecc_escloud_ip_allow_list.this["key"]` with `instance_id|type`.
+- Deletion protection must be disabled and applied before destroy. ESCloud
+  allowlist deletion is asynchronous: a standard destroy first deletes
+  allowlists and then immediately requests instance deletion. If the service
+  has not completed the allowlist task, instance deletion returns
+  `TaskIsRunning` and the destroy exits with code 1. Do not manually remove
+  the instance or Terraform state; wait for the service task to finish and
+  rerun `terraform destroy` with the same configuration. After deletion is
+  accepted, the Provider delete handler queries until the instance is absent.
+- Snapshot policy and repository ownership are deferred because Provider
+  `0.0.71` exposes neither resource. Configure and test them through an
+  approved operational workflow without placing repository credentials in
+  Terraform state.
+- Provider `0.0.71` can expose `admin_password` in refreshed state and destroy
+  plans. Do not persist raw plan logs until the Provider marks this field
+  sensitive and write-only.
